@@ -946,6 +946,18 @@ ALTER FUNCTION dj_complete_deployment(bigint)
 CREATE OR REPLACE FUNCTION dj_create_rfc_ci(p_rfc_id bigint, p_release_id bigint, p_ci_id bigint, p_ns_id bigint, p_class_id integer, p_ci_name character varying, p_ci_goid character varying, p_action_id integer, p_exec_order integer, p_last_rfc_id bigint, p_comments character varying, p_created_by character varying)
   RETURNS void AS
 $BODY$
+BEGIN
+    perform dj_create_rfc_ci(p_rfc_id, p_release_id, p_ci_id, p_ns_id, p_class_id, p_ci_name, p_ci_goid, p_action_id, p_exec_order, p_last_rfc_id, p_comments, p_created_by, null);
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+ALTER FUNCTION dj_create_rfc_ci(bigint, bigint, bigint, bigint, integer, character varying, character varying, integer, integer, bigint, character varying, character varying) OWNER TO :user;
+
+
+CREATE OR REPLACE FUNCTION dj_create_rfc_ci(p_rfc_id bigint, p_release_id bigint, p_ci_id bigint, p_ns_id bigint, p_class_id integer, p_ci_name character varying, p_ci_goid character varying, p_action_id integer, p_exec_order integer, p_last_rfc_id bigint, p_comments character varying, p_created_by character varying, p_hint text)
+  RETURNS void AS
+$BODY$
 DECLARE 
     l_name_exists integer;
 BEGIN
@@ -964,9 +976,9 @@ BEGIN
 
    INSERT INTO dj_rfc_ci(
             rfc_id, release_id, ci_id, ns_id, class_id, ci_name, ci_goid, 
-            action_id, execution_order, is_active_in_release, last_rfc_id, comments, created_by)
+            action_id, execution_order, is_active_in_release, last_rfc_id, comments, created_by, hint)
     VALUES (p_rfc_id, p_release_id, p_ci_id, p_ns_id, p_class_id, p_ci_name, p_ci_goid, 
-            p_action_id, p_exec_order, true, p_last_rfc_id, p_comments, p_created_by);
+            p_action_id, p_exec_order, true, p_last_rfc_id, p_comments, p_created_by, p_hint);
 
 	INSERT INTO cms_ci_event_queue(event_id, source_pk, source_name, event_type_id)
         	VALUES (nextval('event_pk_seq'), p_rfc_id, 'rfc_ci' , 100);
@@ -974,7 +986,7 @@ END;
 $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
-ALTER FUNCTION dj_create_rfc_ci(bigint, bigint, bigint, bigint, integer, character varying, character varying, integer, integer, bigint, character varying, character varying) OWNER TO :user;
+ALTER FUNCTION dj_create_rfc_ci(bigint, bigint, bigint, bigint, integer, character varying, character varying, integer, integer, bigint, character varying, character varying, text) OWNER TO :user;
 
 -- Function: dj_create_rfc_relation(bigint, bigint, bigint, bigint, bigint, bigint, integer, character varying, bigint, bigint, integer, integer, bigint, character varying, character varying)
 
@@ -2422,29 +2434,33 @@ $BODY$
 ALTER FUNCTION cms_acquire_lock(character varying, character varying, integer)
   OWNER TO :user;
 
--- Function: cms_set_var(character varying, text, character varying)
+-- Function: cms_set_var(character varying, text, character varying, character varying)
 
 -- DROP FUNCTION cms_set_var(character varying, text, character varying);
 
-CREATE OR REPLACE FUNCTION cms_set_var(p_var_name character varying, p_var_value text, p_updated_by character varying)
+CREATE OR REPLACE FUNCTION cms_set_var(p_var_name character varying, p_var_value text, p_criteria character varying, p_updated_by character varying)
   RETURNS void AS
 $BODY$
 DECLARE
-    l_var_cnt integer;
+    l_var_id integer;
 BEGIN
 
     -- first lets check if we have a var record
-    select into l_var_cnt count(1) from cms_vars where var_name = p_var_name;
+    select into l_var_id var_id
+    from cms_vars
+    where var_name = p_var_name
+     and ((p_criteria is null and criteria is null) or criteria = p_criteria);
 
-    if l_var_cnt = 0 then
-	insert into cms_vars(var_id, var_name, var_value, updated_by, created, updated)
-	values (nextval('cm_pk_seq'), p_var_name, p_var_value, p_updated_by, now(), now());
+    if l_var_id is null then
+	insert into cms_vars(var_id, var_name, var_value, criteria, updated_by, created, updated)
+	values (nextval('cm_pk_seq'), p_var_name, p_var_value, p_criteria, p_updated_by, now(), now());
     else 
     	update cms_vars
     	set var_value = p_var_value,
+            criteria = p_criteria,
     	    updated_by = p_updated_by,
     	    updated = now()
-    	where var_name = p_var_name;     
+    	where var_id = l_var_id;
     	    
     end if;
 
@@ -2453,7 +2469,7 @@ END;
 $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
-ALTER FUNCTION cms_set_var(character varying, text, character varying)
+ALTER FUNCTION cms_set_var(character varying, text, character varying, character varying)
   OWNER TO :user;
 
   
